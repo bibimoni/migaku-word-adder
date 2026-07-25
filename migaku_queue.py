@@ -159,6 +159,38 @@ def parse_args(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+MIGAKU_EXTENSION_ID = "lkhiljgmbeecmljiogckofcalncmfnfo"
+DEFAULT_CHROME_EXTENSIONS_DIR = os.path.expanduser(
+    "~/Library/Application Support/Google/Chrome/Default/Extensions"
+)
+
+
+class ExtensionNotFound(RuntimeError):
+    """Raised when the Migaku Chrome extension can't be located."""
+
+
+def detect_extension_path(extensions_dir: str = DEFAULT_CHROME_EXTENSIONS_DIR) -> str:
+    """Find the Migaku extension folder. Picks the highest installed version.
+
+    Raises ExtensionNotFound if the extension is missing or has no version dirs.
+    """
+    ext_root = os.path.join(extensions_dir, MIGAKU_EXTENSION_ID)
+    if not os.path.isdir(ext_root):
+        raise ExtensionNotFound(
+            f"Migaku extension not found at {ext_root}. "
+            f"Pass --extension-path to override."
+        )
+    versions = [
+        name for name in os.listdir(ext_root)
+        if os.path.isdir(os.path.join(ext_root, name))
+    ]
+    if not versions:
+        raise ExtensionNotFound(f"No version dirs inside {ext_root}")
+    # Sort by version tuple (split on '.', compare numerically)
+    versions.sort(key=lambda v: [int(x) for x in v.replace("_", ".").split(".") if x.isdigit()])
+    return os.path.join(ext_root, versions[-1])
+
+
 def main() -> int:
     return 0
 

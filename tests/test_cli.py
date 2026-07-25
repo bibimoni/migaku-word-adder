@@ -45,3 +45,30 @@ def test_parse_args_custom_jlpt_path():
 def test_parse_args_custom_deck():
     args = parse_args(["--deck", "Other deck"])
     assert args.deck == "Other deck"
+
+
+import os
+from migaku_queue import detect_extension_path, ExtensionNotFound
+
+
+def test_detect_extension_path_returns_highest_version(tmp_path):
+    ext_root = tmp_path / "Extensions" / "lkhiljgmbeecmljiogckofcalncmfnfo"
+    ext_root.mkdir(parents=True)
+    (ext_root / "1.30.7.0_0").mkdir()
+    (ext_root / "1.30.8.0_0").mkdir()
+    (ext_root / "1.30.9.0_0").mkdir()
+    result = detect_extension_path(str(tmp_path / "Extensions"))
+    assert result.endswith("1.30.9.0_0")
+
+
+def test_detect_extension_path_raises_when_missing(tmp_path):
+    with __import__("pytest").raises(ExtensionNotFound):
+        detect_extension_path(str(tmp_path / "nope"))
+
+
+def test_detect_extension_path_raises_when_no_version_dirs(tmp_path):
+    ext_root = tmp_path / "Extensions" / "lkhiljgmbeecmljiogckofcalncmfnfo"
+    ext_root.mkdir(parents=True)
+    (ext_root / "somefile.txt").write_text("x")
+    with __import__("pytest").raises(ExtensionNotFound):
+        detect_extension_path(str(tmp_path / "Extensions"))
