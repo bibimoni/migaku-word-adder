@@ -2,7 +2,7 @@
 """Top up the Migaku dictionary queue with new Japanese words from JLPT.json."""
 
 import re
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -32,6 +32,27 @@ def parse_jlpt_json(data: list) -> List[Tuple[str, str, str]]:
             continue
         entries.append((current_level, word, reading))
     return entries
+
+
+KNOWN_FIELDS = ("Vocabulary-Kanji", "Vocabulary-Kana")
+
+
+def build_known_set(notes_info: list) -> Set[str]:
+    """Build a set of all known surfaces and readings from AnkiConnect notesInfo.
+
+    HTML is stripped from each field value. Empty values are skipped.
+    """
+    known: Set[str] = set()
+    for note in notes_info:
+        fields = note.get("fields", {})
+        for field_name in KNOWN_FIELDS:
+            field = fields.get(field_name)
+            if not field:
+                continue
+            value = strip_html(field.get("value", ""))
+            if value:
+                known.add(value)
+    return known
 
 
 def main() -> int:
