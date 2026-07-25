@@ -629,9 +629,14 @@ def main(argv=None) -> int:
     else:
         # Check for a previous selection that can be restored
         last_selection = load_last_selection()
+        # Filter out words that are now in the known set (already in Anki or skipped)
+        last_selection = [
+            (w, r) for w, r in last_selection
+            if not is_known(w, r, known_set)
+        ]
         candidates = []
         if last_selection:
-            print(f"\nFound a previous selection of {len(last_selection)} word(s):")
+            print(f"\nFound a previous selection of {len(last_selection)} word(s) not yet in your deck:")
             for i, (word, reading) in enumerate(last_selection, 1):
                 print(f"  {i}. {word}  ({reading})")
             print(f"\nRestore previous selection? [Y/n]: ", end="", flush=True)
