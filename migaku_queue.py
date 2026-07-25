@@ -457,6 +457,62 @@ def ensure_logged_in(page, poll_timeout_seconds: int = 300):
 DICTIONARY_SEARCH_INPUT = ".MainDictionary__input"
 SEND_TO_CARD_CREATOR_BUTTON = ".UiDictEntry__send"
 QUEUE_COUNTER_BUTTON = "button:has-text('Queued')"
+CARD_MANAGER_BUTTON = '[aria-label="Open card manager"]'
+REMOVE_ALL_BUTTON = "button:has-text('REMOVE ALL')"
+CLOSE_CARD_MANAGER_BUTTON = '[aria-label="Close card manager"]'
+
+
+def clear_card_creator_queue(page) -> bool:
+    """Clear the Card Creator queue so only the current run's words remain.
+
+    Returns True if cleared (or already empty), False on failure.
+    """
+    try:
+        # Open the Card Manager
+        mgr_btn = page.locator(CARD_MANAGER_BUTTON).first
+        if mgr_btn.count() == 0:
+            return True  # no card manager button — nothing to clear
+        mgr_btn.click(timeout=3000)
+        page.wait_for_timeout(800)
+
+        # Check if there's anything in the queue
+        remove_all = page.locator(REMOVE_ALL_BUTTON).first
+        if remove_all.count() == 0 or not remove_all.is_visible():
+            # Queue is empty — close the manager and return
+            close_btn = page.locator(CLOSE_CARD_MANAGER_BUTTON).first
+            if close_btn.count() > 0:
+                close_btn.click(timeout=2000)
+            else:
+                page.keyboard.press("Escape")
+            return True
+
+        # Click REMOVE ALL
+        remove_all.click(timeout=3000)
+        page.wait_for_timeout(500)
+
+        # There may be a confirmation dialog — click Confirm if present
+        confirm = page.locator("button:has-text('Confirm')").first
+        if confirm.count() > 0 and confirm.is_visible():
+            confirm.click(timeout=2000)
+            page.wait_for_timeout(500)
+
+        # Close the Card Manager
+        close_btn = page.locator(CLOSE_CARD_MANAGER_BUTTON).first
+        if close_btn.count() > 0:
+            close_btn.click(timeout=2000)
+        else:
+            page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
+        print("  Cleared existing Card Creator queue.")
+        return True
+    except Exception as e:
+        print(f"  [warn] could not clear Card Creator queue: {e}")
+        # Try to close any modal that might be open
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        return False
 
 
 def add_word_to_queue(page, word: str, screenshot_dir: str = DEFAULT_SCREENSHOT_DIR, max_retries: int = 3) -> bool:
@@ -787,6 +843,10 @@ def main(argv=None) -> int:
         if "#/app/dictionary" not in page.url:
             print("Re-navigating to dictionary after login...")
             open_dictionary(page)
+
+        # Clear any words left in the Card Creator from a previous run
+        print("Clearing existing Card Creator queue...")
+        clear_card_creator_queue(page)
 
         consecutive_failures = 0
         added = 0
