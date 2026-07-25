@@ -55,6 +55,11 @@ def build_known_set(notes_info: list) -> Set[str]:
     return known
 
 
+def is_known(word: str, reading: str, known_set: Set[str]) -> bool:
+    """A word is known if its surface or reading is already in the known set."""
+    return word in known_set or reading in known_set
+
+
 def main() -> int:
     return 0
 

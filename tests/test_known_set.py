@@ -38,3 +38,23 @@ def test_build_known_set_handles_missing_fields():
     notes = [{"fields": {"Vocabulary-Kanji": {"value": "猫"}}}]
     known = build_known_set(notes)
     assert known == {"猫"}
+
+
+from migaku_queue import is_known
+
+
+def test_is_known_true_when_surface_in_set():
+    assert is_known("猫", "ねこ", {"猫", "ねこ"}) is True
+
+
+def test_is_known_true_when_only_reading_in_set():
+    # JLPT.json surface form might differ from deck, but reading matches
+    assert is_known("未知", "みち", {"みち"}) is True
+
+
+def test_is_known_true_when_only_surface_in_set():
+    assert is_known("学校", "がっこう", {"学校"}) is True
+
+
+def test_is_known_false_when_neither_in_set():
+    assert is_known("猫", "ねこ", {"犬", "いぬ"}) is False
