@@ -355,21 +355,35 @@ SEND_TO_CARD_CREATOR_BUTTON = ".UiDictEntry__send"
 QUEUE_COUNTER_BUTTON = "button:has-text('Queued')"
 
 
-def add_word_to_queue(page, word: str, screenshot_dir: str = DEFAULT_SCREENSHOT_DIR) -> bool:
+def add_word_to_queue(page, word: str, screenshot_dir: str = DEFAULT_SCREENSHOT_DIR, max_retries: int = 3) -> bool:
     """Search for `word` in the dictionary and click 'Send to Card Creator'.
 
     Returns True on success, False on failure. On failure, saves a screenshot.
     The first word sent opens the Card Creator form; subsequent words go to
     the 'Queued' list inside the Card Creator.
+
+    Retries up to `max_retries` times if the search input is temporarily
+    unavailable (e.g., Card Creator is still processing the previous word).
     """
-    try:
-        page.fill(DICTIONARY_SEARCH_INPUT, "")
-        page.fill(DICTIONARY_SEARCH_INPUT, word)
-        page.wait_for_timeout(1500)  # let results populate
-    except Exception as e:
-        print(f"  [warn] could not search for {word!r}: {e}")
-        _screenshot(page, screenshot_dir, word)
-        return False
+    import time
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Wait for the search input to be ready, then clear and fill
+            input_locator = page.locator(DICTIONARY_SEARCH_INPUT)
+            input_locator.wait_for(state="visible", timeout=10000)
+            page.fill(DICTIONARY_SEARCH_INPUT, "", timeout=10000)
+            page.fill(DICTIONARY_SEARCH_INPUT, word, timeout=10000)
+            page.wait_for_timeout(1500)  # let results populate
+            break
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"  [retry {attempt}/{max_retries}] search input not ready for {word!r}, waiting 3s...")
+                page.wait_for_timeout(3000)
+            else:
+                print(f"  [warn] could not search for {word!r} after {max_retries} attempts: {e}")
+                _screenshot(page, screenshot_dir, word)
+                return False
 
     # Find and click the 'Send to Card Creator' button on the first dictionary entry
     try:
@@ -573,11 +587,14 @@ def main(argv=None) -> int:
 
         consecutive_failures = 0
         added = 0
-        for word, reading in candidates:
-            print(f"Adding {word!r} ({reading})...")
+        for i, (word, reading) in enumerate(candidates):
+            print(f"Adding {word!r} ({reading})...  [{i+1}/{len(candidates)}]")
             if add_word_to_queue(page, word, screenshot_dir=DEFAULT_SCREENSHOT_DIR):
                 added += 1
                 consecutive_failures = 0
+                # Small delay between words to let the Card Creator process
+                if i < len(candidates) - 1:
+                    page.wait_for_timeout(500)
             else:
                 consecutive_failures += 1
                 if consecutive_failures >= 3:
