@@ -156,6 +156,7 @@ DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 DEFAULT_SKIPPED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skipped_words.txt")
 DEFAULT_LAST_SELECTION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_selection.txt")
+DEFAULT_QUEUED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "queued_words.txt")
 
 CONFIG_TEMPLATE = """\
 # Migaku Queue Configuration
@@ -236,6 +237,16 @@ def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
     with open(path, "a", encoding="utf-8") as f:
         for w in sorted(new_words):
             f.write(w + "\n")
+
+
+def load_queued(path: str = DEFAULT_QUEUED_PATH) -> Set[str]:
+    """Load previously queued (sent to Migaku) words. Returns a set of surfaces and readings."""
+    return load_skipped(path)  # same file format, reuse loader
+
+
+def save_queued(words: Set[str], path: str = DEFAULT_QUEUED_PATH) -> None:
+    """Append newly queued words to the file (deduped)."""
+    save_skipped(words, path)  # same append-dedup logic
 
 
 def save_last_selection(candidates: List[Tuple[str, str]], path: str = DEFAULT_LAST_SELECTION_PATH) -> None:
@@ -601,16 +612,23 @@ def main(argv=None) -> int:
     entries = parse_jlpt_json(jlpt_data)
     print(f"JLPT.json: {len(entries)} parsed entries")
 
-    # 3. Build known set (Anki deck words + previously skipped words)
+    # 3. Build known set (Anki deck words + previously skipped + previously queued)
     try:
         known_set = anki_get_deck_words(args.deck, url=args.anki_url)
     except AnkiError as e:
         print(f"Error: {e}")
         return 1
+    extra = []
     skipped_set = load_skipped()
     if skipped_set:
-        print(f"Known words in {args.deck!r}: {len(known_set)} (+{len(skipped_set)} previously skipped)")
         known_set |= skipped_set
+        extra.append(f"{len(skipped_set)} skipped")
+    queued_set = load_queued()
+    if queued_set:
+        known_set |= queued_set
+        extra.append(f"{len(queued_set)} queued")
+    if extra:
+        print(f"Known words in {args.deck!r}: {len(known_set)} (+{', '.join(extra)})")
     else:
         print(f"Known words in {args.deck!r}: {len(known_set)}")
 
@@ -697,11 +715,13 @@ def main(argv=None) -> int:
 
         consecutive_failures = 0
         added = 0
+        successfully_queued: List[Tuple[str, str]] = []
         for i, (word, reading) in enumerate(candidates):
             print(f"Adding {word!r} ({reading})...  [{i+1}/{len(candidates)}]")
             if add_word_to_queue(page, word, screenshot_dir=DEFAULT_SCREENSHOT_DIR):
                 added += 1
                 consecutive_failures = 0
+                successfully_queued.append((word, reading))
                 # Small delay between words to let the Card Creator process
                 if i < len(candidates) - 1:
                     page.wait_for_timeout(500)
@@ -711,6 +731,12 @@ def main(argv=None) -> int:
                     print("Three consecutive failures — extension UI may have changed. Aborting.")
                     print("Check screenshots/ for diagnostics.")
                     break
+
+        # Persist successfully queued words so they're never re-offered
+        if successfully_queued:
+            queued_words = {w for w, r in successfully_queued} | {r for w, r in successfully_queued}
+            save_queued(queued_words)
+            print(f"Saved {len(successfully_queued)} words to queued_words.txt.")
 
         queue_count = get_queue_count(page)
         print(f"\nAdded {added}/{len(candidates)} words to the Migaku Card Creator.")

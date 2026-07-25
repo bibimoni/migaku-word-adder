@@ -6,5 +6,6 @@ screenshots/
 chrome-profile/
 skipped_words.txt
 last_selection.txt
+queued_words.txt
 *.log
 .DS_Store
