@@ -270,15 +270,27 @@ def save_queued(words: Set[str], path: str = DEFAULT_QUEUED_PATH) -> None:
 
 
 def save_last_selection(candidates: List[Tuple[str, str]], path: str = DEFAULT_LAST_SELECTION_PATH) -> None:
-    """Save the accepted word selection to a file so it can be restored on next run."""
+    """Save the accepted word selection to a file so it can be restored on next run.
+
+    Deduplicates by (word, reading) to prevent the same word appearing twice.
+    """
+    seen: Set[Tuple[str, str]] = set()
     with open(path, "w", encoding="utf-8") as f:
         for word, reading in candidates:
+            key = (word, reading)
+            if key in seen:
+                continue
+            seen.add(key)
             f.write(f"{word}\t{reading}\n")
 
 
 def load_last_selection(path: str = DEFAULT_LAST_SELECTION_PATH) -> List[Tuple[str, str]]:
-    """Load a previously saved selection. Returns empty list if file is missing."""
+    """Load a previously saved selection. Returns empty list if file is missing.
+
+    Deduplicates by (word, reading) to handle files with duplicate entries.
+    """
     candidates: List[Tuple[str, str]] = []
+    seen: Set[Tuple[str, str]] = set()
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -287,7 +299,11 @@ def load_last_selection(path: str = DEFAULT_LAST_SELECTION_PATH) -> List[Tuple[s
                     continue
                 parts = line.split("\t")
                 if len(parts) == 2:
-                    candidates.append((parts[0], parts[1]))
+                    key = (parts[0], parts[1])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    candidates.append(key)
     except FileNotFoundError:
         pass
     return candidates
