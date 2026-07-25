@@ -627,11 +627,12 @@ def main(argv=None) -> int:
         for word, reading in candidates:
             print(f"  {word}  ({reading})")
     else:
-        # Check for a previous selection that can be restored
-        last_selection = load_last_selection()
+        # Load the previous selection (regardless of whether we restore it,
+        # we want to avoid re-offering those words during fresh selection)
+        last_selection_raw = load_last_selection()
         # Filter out words that are now in the known set (already in Anki or skipped)
         last_selection = [
-            (w, r) for w, r in last_selection
+            (w, r) for w, r in last_selection_raw
             if not is_known(w, r, known_set)
         ]
         candidates = []
@@ -651,6 +652,12 @@ def main(argv=None) -> int:
                 candidates = []
 
         if not candidates:
+            # Merge the previous selection into the known set so those words
+            # are not re-offered during fresh selection. This prevents the
+            # user from seeing the same words they just reviewed.
+            for w, r in last_selection_raw:
+                known_set.add(w)
+                known_set.add(r)
             print(f"\nSelecting {x} words from {level_label}.")
             print("You can skip words you don't want; replacements will be fetched automatically.")
             candidates = interactive_select(entries, known_set, x, levels)
