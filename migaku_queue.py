@@ -518,12 +518,13 @@ def interactive_select(
     x: int,
     levels: List[str] = None,
     skipped_path: str = DEFAULT_SKIPPED_PATH,
+    queued_path: str = DEFAULT_QUEUED_PATH,
 ) -> List[Tuple[str, str]]:
     """Show candidates to the user, let them skip words, refetch replacements.
 
     Loops until the user accepts X words (or the levels are exhausted).
-    Skipped words are remembered in-memory and persisted to `skipped_path`
-    so they aren't re-offered on future runs.
+    Skipped words are persisted to `skipped_path` and accepted words are
+    persisted to `queued_path` so neither is re-offered on future runs.
     """
     accepted: List[Tuple[str, str]] = []
     rejected: Set[str] = set()
@@ -577,6 +578,11 @@ def interactive_select(
                 print(f"  Kept {kept}, skipped {len(skip_indices)}. Fetching replacements...")
 
     save_skipped(rejected, skipped_path)
+    # Persist accepted words immediately so they're never re-offered,
+    # even if the Chrome phase fails or the user interrupts.
+    if accepted:
+        accepted_words = {w for w, r in accepted} | {r for w, r in accepted}
+        save_queued(accepted_words, queued_path)
     return accepted
 
 
@@ -644,6 +650,8 @@ def main(argv=None) -> int:
         print(f"Selected {len(candidates)} new words from {level_label}:")
         for word, reading in candidates:
             print(f"  {word}  ({reading})")
+        if not args.dry_run and candidates:
+            save_queued({w for w, r in candidates} | {r for w, r in candidates})
     else:
         # Load the previous selection (regardless of whether we restore it,
         # we want to avoid re-offering those words during fresh selection)
