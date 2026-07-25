@@ -2,6 +2,7 @@
 """Top up the Migaku dictionary queue with new Japanese words from JLPT.json."""
 
 import re
+import requests
 from typing import List, Set, Tuple as PyTuple, Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -85,6 +86,35 @@ def select_candidates(
         if len(candidates) >= x:
             break
     return candidates
+
+
+ANKI_URL = "http://localhost:8765"
+ANKI_VERSION = 6
+
+
+class AnkiError(RuntimeError):
+    """Raised when AnkiConnect returns an error or HTTP failure."""
+
+
+def anki_post(action: str, params: dict, url: str = ANKI_URL, timeout: float = 10.0):
+    """POST an AnkiConnect action. Returns the `result` field. Raises AnkiError on failure."""
+    body = {"action": action, "version": ANKI_VERSION, "params": params}
+    try:
+        resp = requests.post(url, json=body, timeout=timeout)
+    except requests.RequestException as e:
+        raise AnkiError(f"AnkiConnect not reachable at {url}: {e}") from e
+    if resp.status_code != 200:
+        raise AnkiError(f"AnkiConnect HTTP {resp.status_code}")
+    payload = resp.json()
+    if payload.get("error"):
+        raise AnkiError(f"AnkiConnect error: {payload['error']}")
+    return payload.get("result")
+
+
+def anki_get_deck_config_x(deck: str, url: str = ANKI_URL) -> int:
+    """Return the perDay new-card count for the given Anki deck."""
+    config = anki_post("getDeckConfig", {"deck": deck}, url=url)
+    return int(config["new"]["perDay"])
 
 
 def main() -> int:
