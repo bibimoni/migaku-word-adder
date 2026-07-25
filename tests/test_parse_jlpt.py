@@ -35,3 +35,26 @@ def test_parse_jlpt_json_handles_no_level_marker_at_start():
     data = [["猫", "ねこ"]]
     entries = parse_jlpt_json(data)
     assert entries == [("", "猫", "ねこ")]
+
+
+from migaku_queue import strip_html
+
+
+def test_strip_html_removes_tags():
+    assert strip_html("<b>学校</b>") == "学校"
+
+
+def test_strip_html_handles_plain_text():
+    assert strip_html("猫") == "猫"
+
+
+def test_strip_html_removes_nested_tags():
+    assert strip_html("<span class='x'><b>学校</b></span>") == "学校"
+
+
+def test_strip_html_collapses_whitespace():
+    assert strip_html("  猫\n 犬 ") == "猫 犬"
+
+
+def test_strip_html_empty_string():
+    assert strip_html("") == ""

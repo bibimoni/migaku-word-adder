@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """Top up the Migaku dictionary queue with new Japanese words from JLPT.json."""
 
+import re
 from typing import List, Tuple
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def strip_html(s: str) -> str:
+    """Strip HTML tags and collapse whitespace."""
+    no_tags = _TAG_RE.sub("", s)
+    return _WS_RE.sub(" ", no_tags).strip()
 
 
 def parse_jlpt_json(data: list) -> List[Tuple[str, str, str]]:
