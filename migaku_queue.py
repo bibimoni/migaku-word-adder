@@ -194,6 +194,34 @@ def detect_extension_path(extensions_dir: str = DEFAULT_CHROME_EXTENSIONS_DIR) -
     return os.path.join(ext_root, versions[-1])
 
 
+DICTIONARY_URL = (
+    f"chrome-extension://{MIGAKU_EXTENSION_ID}/pages/app-window/index.html#/app/dictionary"
+)
+
+
+def launch_chrome(extension_path: str, profile_dir: str, headless: bool = False):
+    """Launch a persistent Chromium context with the Migaku extension loaded.
+
+    Returns (playwright, context, page). Caller is responsible for closing.
+    """
+    from playwright.sync_api import sync_playwright
+
+    pw = sync_playwright().start()
+    context = pw.chromium.launch_persistent_context(
+        profile_dir,
+        headless=headless,
+        args=[
+            f"--disable-extensions-except={extension_path}",
+            f"--load-extension={extension_path}",
+        ],
+        # Extensions only load in headed mode by default; --headless=new is required for headless extensions.
+        # Playwright handles this when headless=True on recent Chromium.
+        viewport={"width": 1280, "height": 900},
+    )
+    page = context.new_page()
+    return pw, context, page
+
+
 def main() -> int:
     return 0
 
