@@ -355,7 +355,105 @@ def _screenshot(page, screenshot_dir: str, word: str) -> None:
         print(f"  [warn] could not save screenshot: {e}")
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import json
+    import time
+
+    args = parse_args(argv)
+
+    # 1. Determine X
+    if args.count is not None:
+        x = args.count
+        print(f"Using --count override: X={x}")
+    else:
+        try:
+            x = anki_get_deck_config_x(args.deck, url=args.anki_url)
+        except AnkiError as e:
+            print(f"Error: {e}")
+            return 1
+        print(f"Anki deck {args.deck!r}: new.perDay = {x}")
+
+    if x <= 0:
+        print("X is 0; nothing to do.")
+        return 0
+
+    # 2. Load JLPT.json
+    try:
+        with open(args.jlpt_path, encoding="utf-8") as f:
+            jlpt_data = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"Error reading {args.jlpt_path}: {e}")
+        return 1
+    entries = parse_jlpt_json(jlpt_data)
+    print(f"JLPT.json: {len(entries)} parsed entries")
+
+    # 3. Build known set
+    try:
+        known_set = anki_get_deck_words(args.deck, url=args.anki_url)
+    except AnkiError as e:
+        print(f"Error: {e}")
+        return 1
+    print(f"Known words in {args.deck!r}: {len(known_set)}")
+
+    # 4. Select candidates
+    candidates = select_candidates(entries, known_set, x)
+    if len(candidates) < x:
+        print(f"Warning: only {len(candidates)} candidates available (requested {x}).")
+
+    print(f"Selected {len(candidates)} new words:")
+    for word, reading in candidates:
+        print(f"  {word}  ({reading})")
+
+    if args.dry_run:
+        print("Dry run — not touching Chrome.")
+        return 0
+
+    # 5. Drive Migaku dictionary
+    try:
+        extension_path = args.extension_path or detect_extension_path()
+    except ExtensionNotFound as e:
+        print(f"Error: {e}")
+        return 1
+
+    print("Launching Chrome with Migaku extension...")
+    pw, ctx, page = launch_chrome(extension_path, args.profile_dir, headless=args.headless)
+    try:
+        open_dictionary(page)
+        ensure_logged_in(page)
+
+        consecutive_failures = 0
+        added = 0
+        for word, reading in candidates:
+            print(f"Adding {word!r} ({reading})...")
+            if add_word_to_queue(page, word, screenshot_dir=DEFAULT_SCREENSHOT_DIR):
+                added += 1
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    print("Three consecutive failures — extension UI may have changed. Aborting.")
+                    print("Check screenshots/ for diagnostics.")
+                    break
+
+        queue_count = get_queue_count(page)
+        print(f"\nAdded {added}/{len(candidates)} words to the Migaku Card Creator.")
+        if queue_count >= 0:
+            print(f"Card Creator queue: {queue_count} waiting (plus 1 current item being edited).")
+
+        if not args.leave_open:
+            ctx.close()
+        else:
+            print("\nLeaving the dictionary window open. Press Ctrl+C in terminal to close.")
+            try:
+                while True:
+                    page.wait_for_timeout(60000)
+            except (KeyboardInterrupt, Exception):
+                pass
+    finally:
+        if not args.leave_open:
+            ctx.close()
+        pw.stop()
+
     return 0
 
 
