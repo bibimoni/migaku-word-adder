@@ -2,7 +2,7 @@
 """Top up the Migaku dictionary queue with new Japanese words from JLPT.json."""
 
 import re
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple as PyTuple, Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -58,6 +58,33 @@ def build_known_set(notes_info: list) -> Set[str]:
 def is_known(word: str, reading: str, known_set: Set[str]) -> bool:
     """A word is known if its surface or reading is already in the known set."""
     return word in known_set or reading in known_set
+
+
+def select_candidates(
+    entries: List[PyTuple[str, str, str]],
+    known_set: Set[str],
+    x: int,
+) -> List[PyTuple[str, str]]:
+    """Return the first x (word, reading) entries not in known_set, in order.
+
+    Skips duplicates within the input. Returns fewer than x if the input
+    is exhausted — caller is responsible for warning.
+    """
+    candidates: List[PyTuple[str, str]] = []
+    seen: Set[PyTuple[str, str]] = set()
+    for _level, word, reading in entries:
+        if x == 0:
+            break
+        key = (word, reading)
+        if key in seen:
+            continue
+        seen.add(key)
+        if is_known(word, reading, known_set):
+            continue
+        candidates.append(key)
+        if len(candidates) >= x:
+            break
+    return candidates
 
 
 def main() -> int:
