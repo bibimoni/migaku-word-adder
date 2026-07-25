@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 screenshots/
 chrome-profile/
+skipped_words.txt
 *.log
 .DS_Store

@@ -150,6 +150,32 @@ DEFAULT_PROFILE_DIR = os.path.expanduser(
 )
 DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+DEFAULT_SKIPPED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skipped_words.txt")
+
+
+def load_skipped(path: str = DEFAULT_SKIPPED_PATH) -> Set[str]:
+    """Load previously skipped words from file. Returns a set of surfaces and readings."""
+    skipped: Set[str] = set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    skipped.add(line)
+    except FileNotFoundError:
+        pass
+    return skipped
+
+
+def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
+    """Append new skipped words to the file (deduped against existing content)."""
+    existing = load_skipped(path)
+    new_words = words - existing
+    if not new_words:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        for w in sorted(new_words):
+            f.write(w + "\n")
 
 
 def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
@@ -393,11 +419,13 @@ def interactive_select(
     known_set: Set[str],
     x: int,
     level: str = None,
+    skipped_path: str = DEFAULT_SKIPPED_PATH,
 ) -> List[Tuple[str, str]]:
     """Show candidates to the user, let them skip words, refetch replacements.
 
     Loops until the user accepts X words (or the level is exhausted).
-    Skipped words are remembered so they aren't re-offered.
+    Skipped words are remembered in-memory and persisted to `skipped_path`
+    so they aren't re-offered on future runs.
     """
     accepted: List[Tuple[str, str]] = []
     rejected: Set[str] = set()
@@ -422,6 +450,7 @@ def interactive_select(
             response = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nAborted by user.")
+            save_skipped(rejected, skipped_path)
             return accepted
 
         if not response:
@@ -449,6 +478,7 @@ def interactive_select(
             if skip_indices:
                 print(f"  Kept {kept}, skipped {len(skip_indices)}. Fetching replacements...")
 
+    save_skipped(rejected, skipped_path)
     return accepted
 
 
@@ -484,13 +514,18 @@ def main(argv=None) -> int:
     entries = parse_jlpt_json(jlpt_data)
     print(f"JLPT.json: {len(entries)} parsed entries")
 
-    # 3. Build known set
+    # 3. Build known set (Anki deck words + previously skipped words)
     try:
         known_set = anki_get_deck_words(args.deck, url=args.anki_url)
     except AnkiError as e:
         print(f"Error: {e}")
         return 1
-    print(f"Known words in {args.deck!r}: {len(known_set)}")
+    skipped_set = load_skipped()
+    if skipped_set:
+        print(f"Known words in {args.deck!r}: {len(known_set)} (+{len(skipped_set)} previously skipped)")
+        known_set |= skipped_set
+    else:
+        print(f"Known words in {args.deck!r}: {len(known_set)}")
 
     # 4. Select candidates
     level = args.level if args.level and args.level != "all" else None
