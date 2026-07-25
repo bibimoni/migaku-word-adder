@@ -4,18 +4,18 @@
 #   Single level:  N3
 #   Multiple:      N3,N4      (comma-separated, words taken in JLPT.json order)
 #   All levels:    all         (sequential N5 -> N1)
-level: all
+level: N3,N2
 
 # Number of words to queue per run.
 #   Set a number to always queue that many.
 #   Leave commented to use Anki deck's "new cards per day" setting.
-# count: 17
+count: 17
 
 # Anki deck to read known words from.
-# deck: Main deck
+deck: Main deck
 
 # Path to JLPT.json.
-# jlpt_path: /Users/distiled/Study materials/Japanese/JLPT.json
+jlpt_path: /Users/distiled/Study materials/Japanese/JLPT.json
 
 # Chrome profile directory for the Migaku extension session.
-# profile_dir: ~/Library/Application Support/Migaku-Automation/chrome-profile
+profile_dir: ~/Library/Application Support/Migaku-Automation/chrome-profile

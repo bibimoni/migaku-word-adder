@@ -155,6 +155,7 @@ DEFAULT_PROFILE_DIR = os.path.expanduser(
 DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 DEFAULT_SKIPPED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skipped_words.txt")
+DEFAULT_LAST_SELECTION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_selection.txt")
 
 CONFIG_TEMPLATE = """\
 # Migaku Queue Configuration
@@ -235,6 +236,30 @@ def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
     with open(path, "a", encoding="utf-8") as f:
         for w in sorted(new_words):
             f.write(w + "\n")
+
+
+def save_last_selection(candidates: List[Tuple[str, str]], path: str = DEFAULT_LAST_SELECTION_PATH) -> None:
+    """Save the accepted word selection to a file so it can be restored on next run."""
+    with open(path, "w", encoding="utf-8") as f:
+        for word, reading in candidates:
+            f.write(f"{word}\t{reading}\n")
+
+
+def load_last_selection(path: str = DEFAULT_LAST_SELECTION_PATH) -> List[Tuple[str, str]]:
+    """Load a previously saved selection. Returns empty list if file is missing."""
+    candidates: List[Tuple[str, str]] = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) == 2:
+                    candidates.append((parts[0], parts[1]))
+    except FileNotFoundError:
+        pass
+    return candidates
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -589,7 +614,7 @@ def main(argv=None) -> int:
     else:
         print(f"Known words in {args.deck!r}: {len(known_set)}")
 
-    # 4. Select candidates
+    # 4. Select candidates (or restore previous selection)
     levels = parse_levels(args.level)
     level_label = args.level or "all"
 
@@ -602,15 +627,35 @@ def main(argv=None) -> int:
         for word, reading in candidates:
             print(f"  {word}  ({reading})")
     else:
-        print(f"\nSelecting {x} words from {level_label}.")
-        print("You can skip words you don't want; replacements will be fetched automatically.")
-        candidates = interactive_select(entries, known_set, x, levels)
-        if len(candidates) < x:
-            print(f"\nWarning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
+        # Check for a previous selection that can be restored
+        last_selection = load_last_selection()
+        candidates = []
+        if last_selection:
+            print(f"\nFound a previous selection of {len(last_selection)} word(s):")
+            for i, (word, reading) in enumerate(last_selection, 1):
+                print(f"  {i}. {word}  ({reading})")
+            print(f"\nRestore previous selection? [Y/n]: ", end="", flush=True)
+            try:
+                response = input().strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                response = "n"
+            if response in ("", "y", "yes"):
+                candidates = last_selection
+                print("Restored previous selection.")
+            else:
+                candidates = []
+
+        if not candidates:
+            print(f"\nSelecting {x} words from {level_label}.")
+            print("You can skip words you don't want; replacements will be fetched automatically.")
+            candidates = interactive_select(entries, known_set, x, levels)
+            if len(candidates) < x:
+                print(f"\nWarning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
 
         print(f"\nFinal selection ({len(candidates)} words from {level_label}):")
         for word, reading in candidates:
             print(f"  {word}  ({reading})")
+        save_last_selection(candidates)
 
     if not candidates:
         print("No words to add.")
@@ -632,6 +677,11 @@ def main(argv=None) -> int:
     try:
         open_dictionary(page)
         ensure_logged_in(page)
+        # After login, the SPA may have redirected to #/app/dashboard.
+        # Re-navigate to the dictionary to be sure we're on the right page.
+        if "#/app/dictionary" not in page.url:
+            print("Re-navigating to dictionary after login...")
+            open_dictionary(page)
 
         consecutive_failures = 0
         added = 0

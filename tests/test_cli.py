@@ -4,7 +4,7 @@ from migaku_queue import parse_args
 
 
 def test_parse_args_defaults():
-    args = parse_args([])
+    args = parse_args(["--config", "/dev/null"])
     assert args.deck == "Main deck"
     assert args.count is None  # None means "use Anki deck config"
     assert args.dry_run is False
