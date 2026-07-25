@@ -117,6 +117,22 @@ def anki_get_deck_config_x(deck: str, url: str = ANKI_URL) -> int:
     return int(config["new"]["perDay"])
 
 
+NOTES_INFO_BATCH = 500
+
+
+def anki_get_deck_words(deck: str, url: str = ANKI_URL) -> Set[str]:
+    """Return the set of known words (surfaces + readings) in the given Anki deck."""
+    note_ids = anki_post("findNotes", {"query": f'deck:"{deck}"'}, url=url)
+    if not note_ids:
+        return set()
+    known: Set[str] = set()
+    for i in range(0, len(note_ids), NOTES_INFO_BATCH):
+        batch = note_ids[i : i + NOTES_INFO_BATCH]
+        notes_info = anki_post("notesInfo", {"notes": batch}, url=url)
+        known |= build_known_set(notes_info)
+    return known
+
+
 def main() -> int:
     return 0
 

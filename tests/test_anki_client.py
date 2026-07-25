@@ -40,3 +40,51 @@ def test_anki_get_deck_config_x_returns_per_day():
     }
     with patch("migaku_queue.requests.post", return_value=_mock_response(config)):
         assert anki_get_deck_config_x("Main deck") == 17
+
+
+from migaku_queue import anki_get_deck_words
+
+
+def test_anki_get_deck_words_returns_known_set():
+    note_ids = [1, 2, 3]
+    notes_info = [
+        {"noteId": 1, "fields": {"Vocabulary-Kanji": {"value": "猫"}, "Vocabulary-Kana": {"value": "ねこ"}}},
+        {"noteId": 2, "fields": {"Vocabulary-Kanji": {"value": "学校"}, "Vocabulary-Kana": {"value": "がっこう"}}},
+        {"noteId": 3, "fields": {"Vocabulary-Kanji": {"value": ""}, "Vocabulary-Kana": {"value": "いぬ"}}},
+    ]
+    responses = [
+        _mock_response({"result": note_ids, "error": None}),
+        _mock_response({"result": notes_info, "error": None}),
+    ]
+    with patch("migaku_queue.requests.post", side_effect=responses) as p:
+        known = anki_get_deck_words("Main deck")
+    assert known == {"猫", "ねこ", "学校", "がっこう", "いぬ"}
+    # findNotes + one notesInfo call (3 IDs < 500 batch size)
+    assert p.call_count == 2
+
+
+def test_anki_get_deck_words_batches_notes_info_in_groups_of_500():
+    note_ids = list(range(1, 1201))  # 1200 notes → 3 batches
+    # Each batch returns one note
+    notes_info_batch_1 = [{"noteId": 1, "fields": {"Vocabulary-Kanji": {"value": "猫"}, "Vocabulary-Kana": {"value": "ねこ"}}}]
+    notes_info_batch_2 = [{"noteId": 501, "fields": {"Vocabulary-Kanji": {"value": "犬"}, "Vocabulary-Kana": {"value": "いぬ"}}}]
+    notes_info_batch_3 = [{"noteId": 1001, "fields": {"Vocabulary-Kanji": {"value": "鳥"}, "Vocabulary-Kana": {"value": "とり"}}}]
+    responses = [
+        _mock_response({"result": note_ids, "error": None}),
+        _mock_response({"result": notes_info_batch_1, "error": None}),
+        _mock_response({"result": notes_info_batch_2, "error": None}),
+        _mock_response({"result": notes_info_batch_3, "error": None}),
+    ]
+    with patch("migaku_queue.requests.post", side_effect=responses) as p:
+        known = anki_get_deck_words("Main deck")
+    assert known == {"猫", "ねこ", "犬", "いぬ", "鳥", "とり"}
+    assert p.call_count == 4  # 1 findNotes + 3 notesInfo
+
+
+def test_anki_get_deck_words_empty_deck_returns_empty_set():
+    responses = [
+        _mock_response({"result": [], "error": None}),
+    ]
+    with patch("migaku_queue.requests.post", side_effect=responses):
+        known = anki_get_deck_words("Main deck")
+    assert known == set()
