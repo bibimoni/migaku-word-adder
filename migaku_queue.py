@@ -67,22 +67,26 @@ def select_candidates(
     entries: List[Tuple[str, str, str]],
     known_set: Set[str],
     x: int,
-    level: str = None,
+    levels: List[str] = None,
 ) -> List[Tuple[str, str]]:
     """Return the first x (word, reading) entries not in known_set, in order.
 
     Skips duplicates within the input. Returns fewer than x if the input
     is exhausted — caller is responsible for warning.
 
-    If `level` is set (e.g. "N3"), only entries from that JLPT level are
-    considered. If `level` is None or "all", all entries are considered.
+    If `levels` is set (e.g. ["N3", "N4"]), only entries from those JLPT
+    levels are considered, in the order they appear in JLPT.json.
+    If `levels` is None or contains "all", all entries are considered.
     """
     if x <= 0:
         return []
+    # Normalize: "all" or None means no filter
+    if not levels or "all" in levels:
+        levels = None
     candidates: List[Tuple[str, str]] = []
     seen: Set[Tuple[str, str]] = set()
     for entry_level, word, reading in entries:
-        if level and level != "all" and entry_level != level:
+        if levels and entry_level not in levels:
             continue
         key = (word, reading)
         if key in seen:
@@ -152,6 +156,61 @@ DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 DEFAULT_SKIPPED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skipped_words.txt")
 
+CONFIG_TEMPLATE = """\
+# Migaku Queue Configuration
+
+# JLPT level(s) to pull words from.
+#   Single level:  N3
+#   Multiple:      N3,N4      (comma-separated, words taken in JLPT.json order)
+#   All levels:    all         (sequential N5 -> N1)
+level: all
+
+# Number of words to queue per run.
+#   Set a number to always queue that many.
+#   Leave commented to use Anki deck's "new cards per day" setting.
+# count: 17
+
+# Anki deck to read known words from.
+# deck: Main deck
+
+# Path to JLPT.json.
+# jlpt_path: /Users/distiled/Study materials/Japanese/JLPT.json
+
+# Chrome profile directory for the Migaku extension session.
+# profile_dir: ~/Library/Application Support/Migaku-Automation/chrome-profile
+"""
+
+
+def parse_levels(level_str: str) -> List[str]:
+    """Parse a level string like 'N3,N4' or 'all' or 'N5' into a list of levels.
+
+    Returns an empty list for "all" (meaning no filter).
+    """
+    if not level_str:
+        return []
+    parts = [p.strip().upper() for p in level_str.split(",") if p.strip()]
+    if not parts or "ALL" in parts:
+        return []
+    return parts
+
+
+def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
+    """Load YAML config. Auto-creates from template if file is missing."""
+    import yaml
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        # Auto-create from template so the user has something to edit
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(CONFIG_TEMPLATE)
+            print(f"Created default config at {path} — edit it to set your level/count.")
+        except OSError:
+            pass  # Can't write (read-only dir?), just proceed with defaults
+        return {}
+
 
 def load_skipped(path: str = DEFAULT_SKIPPED_PATH) -> Set[str]:
     """Load previously skipped words from file. Returns a set of surfaces and readings."""
@@ -178,17 +237,6 @@ def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
             f.write(w + "\n")
 
 
-def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
-    """Load YAML config. Returns a dict, possibly empty if file is missing."""
-    import yaml
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else {}
-    except FileNotFoundError:
-        return {}
-
-
 def parse_args(argv=None) -> argparse.Namespace:
     """Parse CLI arguments. Bare command produces sensible defaults.
 
@@ -208,7 +256,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
     p.add_argument("--deck", default=config.get("deck", "Main deck"), help="Anki deck name (default: Main deck)")
     p.add_argument("--count", type=int, default=config.get("count"), help="Override X (default: from Anki deck config new.perDay)")
-    p.add_argument("--level", default=config.get("level", "all"), help="JLPT level: N5, N4, N3, N2, N1, or all (default: all)")
+    p.add_argument("--level", default=config.get("level", "all"), help="JLPT level(s): N5, N4, N3, N2, N1, comma-separated (N3,N4), or all (default: all)")
     p.add_argument("--jlpt-path", default=config.get("jlpt_path", DEFAULT_JLPT_PATH), help="Path to JLPT.json")
     p.add_argument("--extension-path", default="", help="Path to the Migaku extension folder (default: auto-detect)")
     p.add_argument("--profile-dir", default=config.get("profile_dir", DEFAULT_PROFILE_DIR), help="Chrome persistent profile directory")
@@ -432,23 +480,23 @@ def interactive_select(
     entries: List[Tuple[str, str, str]],
     known_set: Set[str],
     x: int,
-    level: str = None,
+    levels: List[str] = None,
     skipped_path: str = DEFAULT_SKIPPED_PATH,
 ) -> List[Tuple[str, str]]:
     """Show candidates to the user, let them skip words, refetch replacements.
 
-    Loops until the user accepts X words (or the level is exhausted).
+    Loops until the user accepts X words (or the levels are exhausted).
     Skipped words are remembered in-memory and persisted to `skipped_path`
     so they aren't re-offered on future runs.
     """
     accepted: List[Tuple[str, str]] = []
     rejected: Set[str] = set()
-    level_label = level if level and level != "all" else "all levels"
+    level_label = ",".join(levels) if levels else "all levels"
 
     while len(accepted) < x:
         needed = x - len(accepted)
         effective_known = known_set | rejected | {w for w, _r in accepted}
-        new_batch = select_candidates(entries, effective_known, needed, level)
+        new_batch = select_candidates(entries, effective_known, needed, levels)
 
         if not new_batch:
             print(f"\nNo more candidates available from {level_label}.")
@@ -542,11 +590,11 @@ def main(argv=None) -> int:
         print(f"Known words in {args.deck!r}: {len(known_set)}")
 
     # 4. Select candidates
-    level = args.level if args.level and args.level != "all" else None
+    levels = parse_levels(args.level)
     level_label = args.level or "all"
 
     if args.no_confirm or args.dry_run:
-        candidates = select_candidates(entries, known_set, x, level)
+        candidates = select_candidates(entries, known_set, x, levels)
         if len(candidates) < x:
             print(f"Warning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
 
@@ -556,7 +604,7 @@ def main(argv=None) -> int:
     else:
         print(f"\nSelecting {x} words from {level_label}.")
         print("You can skip words you don't want; replacements will be fetched automatically.")
-        candidates = interactive_select(entries, known_set, x, level)
+        candidates = interactive_select(entries, known_set, x, levels)
         if len(candidates) < x:
             print(f"\nWarning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
 

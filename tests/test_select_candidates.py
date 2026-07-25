@@ -51,18 +51,35 @@ def test_select_candidates_level_filter():
         ("N2", "複雑", "ふくざつ"),
     ]
     # Only N3
-    assert select_candidates(entries, set(), x=10, level="N3") == [("読む", "よむ")]
+    assert select_candidates(entries, set(), x=10, levels=["N3"]) == [("読む", "よむ")]
     # Only N4
-    assert select_candidates(entries, set(), x=10, level="N4") == [("学校", "がっこう")]
+    assert select_candidates(entries, set(), x=10, levels=["N4"]) == [("学校", "がっこう")]
+
+
+def test_select_candidates_multi_level_filter():
+    entries = [
+        ("N5", "猫", "ねこ"),
+        ("N4", "学校", "がっこう"),
+        ("N3", "読む", "よむ"),
+        ("N2", "複雑", "ふくざつ"),
+        ("N1", "哲学", "てつがく"),
+    ]
+    # N3 and N4 — order follows JLPT.json (N4 comes before N3 in this fixture)
+    result = select_candidates(entries, set(), x=10, levels=["N3", "N4"])
+    assert result == [("学校", "がっこう"), ("読む", "よむ")]
+    # N5 and N1
+    result = select_candidates(entries, set(), x=10, levels=["N5", "N1"])
+    assert result == [("猫", "ねこ"), ("哲学", "てつがく")]
 
 
 def test_select_candidates_level_all_means_no_filter():
     entries = [("N5", "猫", "ねこ"), ("N4", "学校", "がっこう")]
-    assert select_candidates(entries, set(), x=10, level="all") == [("猫", "ねこ"), ("学校", "がっこう")]
-    assert select_candidates(entries, set(), x=10, level=None) == [("猫", "ねこ"), ("学校", "がっこう")]
+    assert select_candidates(entries, set(), x=10, levels=["all"]) == [("猫", "ねこ"), ("学校", "がっこう")]
+    assert select_candidates(entries, set(), x=10, levels=None) == [("猫", "ねこ"), ("学校", "がっこう")]
+    assert select_candidates(entries, set(), x=10, levels=[]) == [("猫", "ねこ"), ("学校", "がっこう")]
 
 
 def test_select_candidates_level_exhausted_returns_fewer():
     entries = [("N5", "猫", "ねこ"), ("N4", "学校", "がっこう")]
     # Only 1 N4 entry
-    assert select_candidates(entries, set(), x=5, level="N4") == [("学校", "がっこう")]
+    assert select_candidates(entries, set(), x=5, levels=["N4"]) == [("学校", "がっこう")]
