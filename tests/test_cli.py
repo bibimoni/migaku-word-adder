@@ -12,6 +12,8 @@ def test_parse_args_defaults():
     assert args.headless is False
     assert args.jlpt_path.endswith("JLPT.json")
     assert args.extension_path == ""  # auto-detect when empty
+    assert args.level == "all"  # default from config.yaml or "all"
+    assert args.no_confirm is False  # interactive selection by default
 
 
 def test_parse_args_dry_run():
@@ -47,6 +49,33 @@ def test_parse_args_custom_jlpt_path():
 def test_parse_args_custom_deck():
     args = parse_args(["--deck", "Other deck"])
     assert args.deck == "Other deck"
+
+
+def test_parse_args_level_override():
+    args = parse_args(["--level", "N3"])
+    assert args.level == "N3"
+
+
+def test_parse_args_no_confirm():
+    args = parse_args(["--no-confirm"])
+    assert args.no_confirm is True
+
+
+def test_parse_args_config_file(tmp_path):
+    cfg = tmp_path / "myconfig.yaml"
+    cfg.write_text("level: N2\ncount: 3\ndeck: Custom\n", encoding="utf-8")
+    args = parse_args(["--config", str(cfg)])
+    assert args.level == "N2"
+    assert args.count == 3
+    assert args.deck == "Custom"
+
+
+def test_parse_args_cli_overrides_config(tmp_path):
+    cfg = tmp_path / "myconfig.yaml"
+    cfg.write_text("level: N2\ncount: 3\n", encoding="utf-8")
+    args = parse_args(["--config", str(cfg), "--level", "N1", "--count", "10"])
+    assert args.level == "N1"
+    assert args.count == 10
 
 
 import os

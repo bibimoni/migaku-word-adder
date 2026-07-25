@@ -67,17 +67,23 @@ def select_candidates(
     entries: List[Tuple[str, str, str]],
     known_set: Set[str],
     x: int,
+    level: str = None,
 ) -> List[Tuple[str, str]]:
     """Return the first x (word, reading) entries not in known_set, in order.
 
     Skips duplicates within the input. Returns fewer than x if the input
     is exhausted — caller is responsible for warning.
+
+    If `level` is set (e.g. "N3"), only entries from that JLPT level are
+    considered. If `level` is None or "all", all entries are considered.
     """
     if x <= 0:
         return []
     candidates: List[Tuple[str, str]] = []
     seen: Set[Tuple[str, str]] = set()
-    for _level, word, reading in entries:
+    for entry_level, word, reading in entries:
+        if level and level != "all" and entry_level != level:
+            continue
         key = (word, reading)
         if key in seen:
             continue
@@ -143,21 +149,48 @@ DEFAULT_PROFILE_DIR = os.path.expanduser(
     "~/Library/Application Support/Migaku-Automation/chrome-profile"
 )
 DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+
+
+def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
+    """Load YAML config. Returns a dict, possibly empty if file is missing."""
+    import yaml
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    """Parse CLI arguments. Bare command produces sensible defaults."""
+    """Parse CLI arguments. Bare command produces sensible defaults.
+
+    Config file is loaded in two phases: first `--config` is extracted via
+    parse_known_args, then the full parse uses config values as defaults.
+    """
+    # Phase 1: extract --config so we know which file to load
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+    pre_args, _ = pre.parse_known_args(argv)
+
+    config = load_config(pre_args.config)
+
+    # Phase 2: full parse with config as defaults
     p = argparse.ArgumentParser(
         description="Top up the Migaku dictionary queue with new words from JLPT.json."
     )
-    p.add_argument("--deck", default="Main deck", help="Anki deck name (default: Main deck)")
-    p.add_argument("--count", type=int, default=None, help="Override X (default: from Anki deck config new.perDay)")
-    p.add_argument("--jlpt-path", default=DEFAULT_JLPT_PATH, help="Path to JLPT.json")
+    p.add_argument("--deck", default=config.get("deck", "Main deck"), help="Anki deck name (default: Main deck)")
+    p.add_argument("--count", type=int, default=config.get("count"), help="Override X (default: from Anki deck config new.perDay)")
+    p.add_argument("--level", default=config.get("level", "all"), help="JLPT level: N5, N4, N3, N2, N1, or all (default: all)")
+    p.add_argument("--jlpt-path", default=config.get("jlpt_path", DEFAULT_JLPT_PATH), help="Path to JLPT.json")
     p.add_argument("--extension-path", default="", help="Path to the Migaku extension folder (default: auto-detect)")
-    p.add_argument("--profile-dir", default=DEFAULT_PROFILE_DIR, help="Chrome persistent profile directory")
+    p.add_argument("--profile-dir", default=config.get("profile_dir", DEFAULT_PROFILE_DIR), help="Chrome persistent profile directory")
     p.add_argument("--dry-run", action="store_true", help="Print candidates, don't touch Chrome")
+    p.add_argument("--no-confirm", action="store_true", help="Skip interactive word selection, accept all candidates")
     p.add_argument("--no-leave-open", dest="leave_open", action="store_false", help="Close Chrome after adding")
     p.add_argument("--headless", action="store_true", help="Run Chrome headless (default: headful)")
+    p.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml (default: config.yaml next to script)")
     p.add_argument("--anki-url", default=ANKI_URL, help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
@@ -355,6 +388,70 @@ def _screenshot(page, screenshot_dir: str, word: str) -> None:
         print(f"  [warn] could not save screenshot: {e}")
 
 
+def interactive_select(
+    entries: List[Tuple[str, str, str]],
+    known_set: Set[str],
+    x: int,
+    level: str = None,
+) -> List[Tuple[str, str]]:
+    """Show candidates to the user, let them skip words, refetch replacements.
+
+    Loops until the user accepts X words (or the level is exhausted).
+    Skipped words are remembered so they aren't re-offered.
+    """
+    accepted: List[Tuple[str, str]] = []
+    rejected: Set[str] = set()
+    level_label = level if level and level != "all" else "all levels"
+
+    while len(accepted) < x:
+        needed = x - len(accepted)
+        effective_known = known_set | rejected | {w for w, _r in accepted}
+        new_batch = select_candidates(entries, effective_known, needed, level)
+
+        if not new_batch:
+            print(f"\nNo more candidates available from {level_label}.")
+            break
+
+        print(f"\n--- {len(new_batch)} new candidate(s) from {level_label} "
+              f"({len(accepted)} accepted, {len(accepted) + len(new_batch)}/{x}) ---")
+        for i, (word, reading) in enumerate(new_batch, 1):
+            print(f"  {i}. {word}  ({reading})")
+
+        print(f"\nEnter numbers to skip (space-separated), or Enter to accept all:")
+        try:
+            response = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted by user.")
+            return accepted
+
+        if not response:
+            accepted.extend(new_batch)
+        else:
+            skip_indices = set()
+            for part in response.split():
+                try:
+                    idx = int(part) - 1
+                    if 0 <= idx < len(new_batch):
+                        skip_indices.add(idx)
+                except ValueError:
+                    pass
+
+            kept = 0
+            for i, (word, reading) in enumerate(new_batch):
+                if i in skip_indices:
+                    rejected.add(word)
+                    rejected.add(reading)
+                    print(f"  skipped: {word} ({reading})")
+                else:
+                    accepted.append((word, reading))
+                    kept += 1
+
+            if skip_indices:
+                print(f"  Kept {kept}, skipped {len(skip_indices)}. Fetching replacements...")
+
+    return accepted
+
+
 def main(argv=None) -> int:
     import json
     import time
@@ -396,13 +493,31 @@ def main(argv=None) -> int:
     print(f"Known words in {args.deck!r}: {len(known_set)}")
 
     # 4. Select candidates
-    candidates = select_candidates(entries, known_set, x)
-    if len(candidates) < x:
-        print(f"Warning: only {len(candidates)} candidates available (requested {x}).")
+    level = args.level if args.level and args.level != "all" else None
+    level_label = args.level or "all"
 
-    print(f"Selected {len(candidates)} new words:")
-    for word, reading in candidates:
-        print(f"  {word}  ({reading})")
+    if args.no_confirm or args.dry_run:
+        candidates = select_candidates(entries, known_set, x, level)
+        if len(candidates) < x:
+            print(f"Warning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
+
+        print(f"Selected {len(candidates)} new words from {level_label}:")
+        for word, reading in candidates:
+            print(f"  {word}  ({reading})")
+    else:
+        print(f"\nSelecting {x} words from {level_label}.")
+        print("You can skip words you don't want; replacements will be fetched automatically.")
+        candidates = interactive_select(entries, known_set, x, level)
+        if len(candidates) < x:
+            print(f"\nWarning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
+
+        print(f"\nFinal selection ({len(candidates)} words from {level_label}):")
+        for word, reading in candidates:
+            print(f"  {word}  ({reading})")
+
+    if not candidates:
+        print("No words to add.")
+        return 0
 
     if args.dry_run:
         print("Dry run — not touching Chrome.")

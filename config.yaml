@@ -1,0 +1,17 @@
+# Migaku Queue Configuration
+# 
+# Pick which JLPT level to pull words from:
+#   N5, N4, N3, N2, N1, or all (sequential N5 → N1)
+level: all
+
+# Override the number of words to queue per run (default: from Anki deck config)
+# count: 17
+
+# Anki deck to read known words from (default: Main deck)
+# deck: Main deck
+
+# Path to JLPT.json (default: ~/Study materials/Japanese/JLPT.json)
+# jlpt_path: /Users/distiled/Study materials/Japanese/JLPT.json
+
+# Chrome profile directory for the Migaku extension session
+# profile_dir: ~/Library/Application Support/Migaku-Automation/chrome-profile
