@@ -37,7 +37,16 @@ def parse_jlpt_json(data: list) -> List[Tuple[str, str, str]]:
     return entries
 
 
-KNOWN_FIELDS = ("Vocabulary-Kanji", "Vocabulary-Kana")
+KNOWN_FIELDS = (
+    # Japanese-75658 (default Migaku vocab)
+    "Vocabulary-Kanji", "Vocabulary-Kana",
+    # Migaku Japanese CUSTOM STYLING
+    "Target Word",
+    # Lapis
+    "Expression", "ExpressionReading",
+    # Japanese sentences
+    "VocabKanji",
+)
 
 
 def build_known_set(notes_info: list) -> Set[str]:
@@ -146,6 +155,17 @@ def anki_get_deck_words(deck: str, url: str = ANKI_URL) -> Set[str]:
         notes_info = anki_post("notesInfo", {"notes": batch}, url=url)
         known |= build_known_set(notes_info)
     return known
+
+
+def anki_word_in_deck(word: str, deck: str, url: str = ANKI_URL) -> bool:
+    """Check if a word appears anywhere in the Anki deck (any field, any note type).
+
+    Uses AnkiConnect's full-text search to catch words stored in different
+    surface forms (e.g., kanji 有らゆる vs hiragana あらゆる) or in non-standard
+    fields the known-set builder doesn't check.
+    """
+    note_ids = anki_post("findNotes", {"query": f'deck:"{deck}" {word}'}, url=url)
+    return len(note_ids) > 0
 
 
 DEFAULT_JLPT_PATH = "/Users/distiled/Study materials/Japanese/JLPT.json"
@@ -586,6 +606,46 @@ def interactive_select(
     return accepted
 
 
+def _verify_against_anki(
+    candidates: List[Tuple[str, str]],
+    deck: str,
+    anki_url: str,
+    known_set: Set[str],
+    entries: List[Tuple[str, str, str]],
+    levels: List[str],
+    x: int,
+) -> List[Tuple[str, str]]:
+    """Double-check candidates against Anki's full-text search.
+
+    Catches words stored in non-standard note types or surface forms that
+    the known-set builder missed. Replaces any that are found in Anki with
+    fresh candidates.
+    """
+    verified: List[Tuple[str, str]] = []
+    replaced = 0
+    for word, reading in candidates:
+        try:
+            if anki_word_in_deck(word, deck, url=anki_url):
+                print(f"  [anki] {word} ({reading}) found in deck via full-text search — skipping")
+                known_set.add(word)
+                known_set.add(reading)
+                replaced += 1
+                continue
+        except AnkiError as e:
+            print(f"  [warn] Anki search failed for {word!r}: {e}")
+        verified.append((word, reading))
+
+    if replaced > 0:
+        print(f"  [anki] {replaced} word(s) found in Anki; fetching {replaced} replacement(s)...")
+        extra_known = known_set | {w for w, r in verified} | {r for w, r in verified}
+        extra = select_candidates(entries, extra_known, replaced, levels)
+        verified.extend(extra)
+        if extra:
+            print(f"  [anki] added {len(extra)} replacement(s).")
+
+    return verified
+
+
 def main(argv=None) -> int:
     import json
     import time
@@ -644,6 +704,13 @@ def main(argv=None) -> int:
 
     if args.no_confirm or args.dry_run:
         candidates = select_candidates(entries, known_set, x, levels)
+        # Verify each candidate against Anki's full-text search to catch
+        # words stored in different note types / surface forms
+        if not args.dry_run and candidates:
+            candidates = _verify_against_anki(candidates, args.deck, args.anki_url, known_set, entries, levels, x)
+            if not candidates:
+                print("All candidates were already in Anki. Try a different level or increase count.")
+                return 0
         if len(candidates) < x:
             print(f"Warning: only {len(candidates)} candidates available from {level_label} (requested {x}).")
 
