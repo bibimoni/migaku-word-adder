@@ -1,3 +1,5 @@
+import pytest
+
 from migaku_queue import parse_args
 
 
@@ -62,7 +64,7 @@ def test_detect_extension_path_returns_highest_version(tmp_path):
 
 
 def test_detect_extension_path_raises_when_missing(tmp_path):
-    with __import__("pytest").raises(ExtensionNotFound):
+    with pytest.raises(ExtensionNotFound):
         detect_extension_path(str(tmp_path / "nope"))
 
 
@@ -70,5 +72,5 @@ def test_detect_extension_path_raises_when_no_version_dirs(tmp_path):
     ext_root = tmp_path / "Extensions" / "lkhiljgmbeecmljiogckofcalncmfnfo"
     ext_root.mkdir(parents=True)
     (ext_root / "somefile.txt").write_text("x")
-    with __import__("pytest").raises(ExtensionNotFound):
+    with pytest.raises(ExtensionNotFound):
         detect_extension_path(str(tmp_path / "Extensions"))

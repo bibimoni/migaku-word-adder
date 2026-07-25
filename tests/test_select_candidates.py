@@ -31,6 +31,11 @@ def test_select_candidates_x_zero_returns_empty():
     assert select_candidates(entries, set(), x=0) == []
 
 
+def test_select_candidates_negative_x_returns_empty():
+    entries = [("N5", "猫", "ねこ")]
+    assert select_candidates(entries, set(), x=-1) == []
+
+
 def test_select_candidates_dedupes_within_input():
     # If the same word appears twice in JLPT.json, only the first occurrence is selected
     entries = [("N5", "猫", "ねこ"), ("N4", "猫", "ねこ")]

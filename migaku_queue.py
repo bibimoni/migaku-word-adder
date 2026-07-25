@@ -5,7 +5,7 @@ import argparse
 import os
 import re
 import requests
-from typing import List, Set, Tuple as PyTuple, Tuple
+from typing import List, Set, Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -64,20 +64,20 @@ def is_known(word: str, reading: str, known_set: Set[str]) -> bool:
 
 
 def select_candidates(
-    entries: List[PyTuple[str, str, str]],
+    entries: List[Tuple[str, str, str]],
     known_set: Set[str],
     x: int,
-) -> List[PyTuple[str, str]]:
+) -> List[Tuple[str, str]]:
     """Return the first x (word, reading) entries not in known_set, in order.
 
     Skips duplicates within the input. Returns fewer than x if the input
     is exhausted — caller is responsible for warning.
     """
-    candidates: List[PyTuple[str, str]] = []
-    seen: Set[PyTuple[str, str]] = set()
+    if x <= 0:
+        return []
+    candidates: List[Tuple[str, str]] = []
+    seen: Set[Tuple[str, str]] = set()
     for _level, word, reading in entries:
-        if x == 0:
-            break
         key = (word, reading)
         if key in seen:
             continue
@@ -107,7 +107,10 @@ def anki_post(action: str, params: dict, url: str = ANKI_URL, timeout: float = 1
         raise AnkiError(f"AnkiConnect not reachable at {url}: {e}") from e
     if resp.status_code != 200:
         raise AnkiError(f"AnkiConnect HTTP {resp.status_code}")
-    payload = resp.json()
+    try:
+        payload = resp.json()
+    except ValueError as e:
+        raise AnkiError(f"AnkiConnect returned non-JSON response: {e}") from e
     if payload.get("error"):
         raise AnkiError(f"AnkiConnect error: {payload['error']}")
     return payload.get("result")

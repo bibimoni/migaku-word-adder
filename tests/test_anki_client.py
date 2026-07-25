@@ -33,6 +33,16 @@ def test_anki_post_raises_on_http_error():
             anki_post("deckNames", {})
 
 
+def test_anki_post_raises_on_non_json_200():
+    # AnkiConnect returns 200 with non-JSON body — must raise AnkiError, not JSONDecodeError
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.side_effect = ValueError("not JSON")
+    with patch("migaku_queue.requests.post", return_value=resp):
+        with pytest.raises(AnkiError):
+            anki_post("deckNames", {})
+
+
 def test_anki_get_deck_config_x_returns_per_day():
     config = {
         "result": {"new": {"perDay": 17}, "id": 1, "name": "Main"},
