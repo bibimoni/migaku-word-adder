@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Top up the Migaku dictionary queue with new Japanese words from JLPT.json."""
 
+import argparse
+import os
 import re
 import requests
 from typing import List, Set, Tuple as PyTuple, Tuple
@@ -131,6 +133,30 @@ def anki_get_deck_words(deck: str, url: str = ANKI_URL) -> Set[str]:
         notes_info = anki_post("notesInfo", {"notes": batch}, url=url)
         known |= build_known_set(notes_info)
     return known
+
+
+DEFAULT_JLPT_PATH = "/Users/distiled/Study materials/Japanese/JLPT.json"
+DEFAULT_PROFILE_DIR = os.path.expanduser(
+    "~/Library/Application Support/Migaku-Automation/chrome-profile"
+)
+DEFAULT_SCREENSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    """Parse CLI arguments. Bare command produces sensible defaults."""
+    p = argparse.ArgumentParser(
+        description="Top up the Migaku dictionary queue with new words from JLPT.json."
+    )
+    p.add_argument("--deck", default="Main deck", help="Anki deck name (default: Main deck)")
+    p.add_argument("--count", type=int, default=None, help="Override X (default: from Anki deck config new.perDay)")
+    p.add_argument("--jlpt-path", default=DEFAULT_JLPT_PATH, help="Path to JLPT.json")
+    p.add_argument("--extension-path", default="", help="Path to the Migaku extension folder (default: auto-detect)")
+    p.add_argument("--profile-dir", default=DEFAULT_PROFILE_DIR, help="Chrome persistent profile directory")
+    p.add_argument("--dry-run", action="store_true", help="Print candidates, don't touch Chrome")
+    p.add_argument("--no-leave-open", dest="leave_open", action="store_false", help="Close Chrome after adding")
+    p.add_argument("--headless", action="store_true", help="Run Chrome headless (default: headful)")
+    p.add_argument("--anki-url", default=ANKI_URL, help=argparse.SUPPRESS)
+    return p.parse_args(argv)
 
 
 def main() -> int:
