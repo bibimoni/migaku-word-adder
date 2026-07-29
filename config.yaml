@@ -15,7 +15,7 @@ count: 17
 deck: Main deck
 
 # Path to JLPT.json.
-jlpt_path: /Users/distiled/Study materials/Japanese/JLPT.json
+jlpt_path: JLPT.json
 
 # Chrome profile directory for the Migaku extension session.
 profile_dir: ~/Library/Application Support/Migaku-Automation/chrome-profile
