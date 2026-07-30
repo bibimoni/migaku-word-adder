@@ -5,7 +5,7 @@ import argparse
 import os
 import re
 import requests
-from typing import List, Set, Tuple
+from typing import Tuple
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -17,14 +17,14 @@ def strip_html(s: str) -> str:
     return _WS_RE.sub(" ", no_tags).strip()
 
 
-def parse_jlpt_json(data: list) -> List[Tuple[str, str, str]]:
+def parse_jlpt_json(data: list) -> list[Tuple[str, str, str]]:
     """Parse the JLPT.json array into (level, word, reading) tuples.
 
     Level markers are rows where word == reading and word starts with 'N'.
     Empty rows are ['','']. Both are skipped. The 'level' of each entry is
     the most recent level marker seen.
     """
-    entries: List[Tuple[str, str, str]] = []
+    entries: list[Tuple[str, str, str]] = []
     current_level = ""
     for row in data:
         word, reading = row[0], row[1]
@@ -49,12 +49,12 @@ KNOWN_FIELDS = (
 )
 
 
-def build_known_set(notes_info: list) -> Set[str]:
+def build_known_set(notes_info: list) -> set[str]:
     """Build a set of all known surfaces and readings from AnkiConnect notesInfo.
 
     HTML is stripped from each field value. Empty values are skipped.
     """
-    known: Set[str] = set()
+    known: set[str] = set()
     for note in notes_info:
         fields = note.get("fields", {})
         for field_name in KNOWN_FIELDS:
@@ -67,17 +67,17 @@ def build_known_set(notes_info: list) -> Set[str]:
     return known
 
 
-def is_known(word: str, reading: str, known_set: Set[str]) -> bool:
+def is_known(word: str, reading: str, known_set: set[str]) -> bool:
     """A word is known if its surface or reading is already in the known set."""
     return word in known_set or reading in known_set
 
 
 def select_candidates(
-    entries: List[Tuple[str, str, str]],
-    known_set: Set[str],
+    entries: list[Tuple[str, str, str]],
+    known_set: set[str],
     x: int,
-    levels: List[str] = None,
-) -> List[Tuple[str, str]]:
+    levels: list[str] | None = None,
+) -> list[Tuple[str, str, str]]:
     """Return the first x (word, reading) entries not in known_set, in order.
 
     Skips duplicates within the input. Returns fewer than x if the input
@@ -92,15 +92,16 @@ def select_candidates(
     # Normalize: "all" or None means no filter
     if not levels or "all" in levels:
         levels = None
-    candidates: List[Tuple[str, str]] = []
-    seen: Set[Tuple[str, str]] = set()
+    candidates: list[Tuple[str, str, str]] = []
+    seen: set[Tuple[str, str]] = set()
     for entry_level, word, reading in entries:
         if levels and entry_level not in levels:
             continue
-        key = (word, reading)
+        key = (word, reading, entry_level)
+        seen_key = (word, reading)
         if key in seen:
             continue
-        seen.add(key)
+        seen.add(seen_key)
         if is_known(word, reading, known_set):
             continue
         candidates.append(key)
@@ -144,12 +145,12 @@ def anki_get_deck_config_x(deck: str, url: str = ANKI_URL) -> int:
 NOTES_INFO_BATCH = 500
 
 
-def anki_get_deck_words(deck: str, url: str = ANKI_URL) -> Set[str]:
+def anki_get_deck_words(deck: str, url: str = ANKI_URL) -> set[str]:
     """Return the set of known words (surfaces + readings) in the given Anki deck."""
     note_ids = anki_post("findNotes", {"query": f'deck:"{deck}"'}, url=url)
     if not note_ids:
         return set()
-    known: Set[str] = set()
+    known: set[str] = set()
     for i in range(0, len(note_ids), NOTES_INFO_BATCH):
         batch = note_ids[i : i + NOTES_INFO_BATCH]
         notes_info = anki_post("notesInfo", {"notes": batch}, url=url)
@@ -188,7 +189,7 @@ CONFIG_TEMPLATE = """\
 level: all
 
 # Number of words to queue per run.
-#   Set a number to always queue that many.
+#   set a number to always queue that many.
 #   Leave commented to use Anki deck's "new cards per day" setting.
 # count: 17
 
@@ -203,7 +204,7 @@ level: all
 """
 
 
-def parse_levels(level_str: str) -> List[str]:
+def parse_levels(level_str: str) -> list[str]:
     """Parse a level string like 'N3,N4' or 'all' or 'N5' into a list of levels.
 
     Returns an empty list for "all" (meaning no filter).
@@ -234,9 +235,9 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
         return {}
 
 
-def load_skipped(path: str = DEFAULT_SKIPPED_PATH) -> Set[str]:
+def load_skipped(path: str = DEFAULT_SKIPPED_PATH) -> set[str]:
     """Load previously skipped words from file. Returns a set of surfaces and readings."""
-    skipped: Set[str] = set()
+    skipped: set[str] = set()
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -248,7 +249,7 @@ def load_skipped(path: str = DEFAULT_SKIPPED_PATH) -> Set[str]:
     return skipped
 
 
-def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
+def save_skipped(words: set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
     """Append new skipped words to the file (deduped against existing content)."""
     existing = load_skipped(path)
     new_words = words - existing
@@ -259,22 +260,22 @@ def save_skipped(words: Set[str], path: str = DEFAULT_SKIPPED_PATH) -> None:
             f.write(w + "\n")
 
 
-def load_queued(path: str = DEFAULT_QUEUED_PATH) -> Set[str]:
+def load_queued(path: str = DEFAULT_QUEUED_PATH) -> set[str]:
     """Load previously queued (sent to Migaku) words. Returns a set of surfaces and readings."""
     return load_skipped(path)  # same file format, reuse loader
 
 
-def save_queued(words: Set[str], path: str = DEFAULT_QUEUED_PATH) -> None:
+def save_queued(words: set[str], path: str = DEFAULT_QUEUED_PATH) -> None:
     """Append newly queued words to the file (deduped)."""
     save_skipped(words, path)  # same append-dedup logic
 
 
-def save_last_selection(candidates: List[Tuple[str, str]], path: str = DEFAULT_LAST_SELECTION_PATH) -> None:
+def save_last_selection(candidates: list[Tuple[str, str]], path: str = DEFAULT_LAST_SELECTION_PATH) -> None:
     """Save the accepted word selection to a file so it can be restored on next run.
 
     Deduplicates by (word, reading) to prevent the same word appearing twice.
     """
-    seen: Set[Tuple[str, str]] = set()
+    seen: set[Tuple[str, str]] = set()
     with open(path, "w", encoding="utf-8") as f:
         for word, reading in candidates:
             key = (word, reading)
@@ -284,13 +285,13 @@ def save_last_selection(candidates: List[Tuple[str, str]], path: str = DEFAULT_L
             f.write(f"{word}\t{reading}\n")
 
 
-def load_last_selection(path: str = DEFAULT_LAST_SELECTION_PATH) -> List[Tuple[str, str]]:
+def load_last_selection(path: str = DEFAULT_LAST_SELECTION_PATH) -> list[Tuple[str, str]]:
     """Load a previously saved selection. Returns empty list if file is missing.
 
     Deduplicates by (word, reading) to handle files with duplicate entries.
     """
-    candidates: List[Tuple[str, str]] = []
-    seen: Set[Tuple[str, str]] = set()
+    candidates: list[Tuple[str, str]] = []
+    seen: set[Tuple[str, str]] = set()
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -406,7 +407,7 @@ def open_dictionary(page, setup_timeout_seconds: int = 120):
 
     On a fresh profile, the Migaku app shows a loading/setup screen first
     (it installs a default dictionary). We wait for the app to finish initializing
-    (title no longer contains "Loading" or "Setup"). The SPA may redirect to
+    (title no longer contains "Loading" or "setup"). The SPA may redirect to
     #/app/dashboard after init; if so, we set the hash to #/app/dictionary directly
     (page.goto to the dictionary URL during init gets redirected, but post-init
     hash changes are respected).
@@ -416,7 +417,7 @@ def open_dictionary(page, setup_timeout_seconds: int = 120):
     deadline = time.time() + setup_timeout_seconds
     while time.time() < deadline:
         title = page.title()
-        if "Loading" not in title and "Setup" not in title:
+        if "Loading" not in title and "setup" not in title:
             # App finished loading. If we're not on dictionary, navigate there.
             if "#/app/dictionary" not in page.url:
                 page.evaluate("window.location.hash = '#/app/dictionary'")
@@ -549,21 +550,21 @@ def _screenshot(page, screenshot_dir: str, word: str) -> None:
 
 
 def interactive_select(
-    entries: List[Tuple[str, str, str]],
-    known_set: Set[str],
+    entries: list[Tuple[str, str, str]],
+    known_set: set[str],
     x: int,
-    levels: List[str] = None,
+    levels: list[str] | None = None,
     skipped_path: str = DEFAULT_SKIPPED_PATH,
     queued_path: str = DEFAULT_QUEUED_PATH,
-) -> List[Tuple[str, str]]:
+) -> list[Tuple[str, str]]:
     """Show candidates to the user, let them skip words, refetch replacements.
 
     Loops until the user accepts X words (or the levels are exhausted).
     Skipped words are persisted to `skipped_path` and accepted words are
     persisted to `queued_path` so neither is re-offered on future runs.
     """
-    accepted: List[Tuple[str, str]] = []
-    rejected: Set[str] = set()
+    accepted: list[Tuple[str, str]] = []
+    rejected: set[str] = set()
     level_label = ",".join(levels) if levels else "all levels"
 
     while len(accepted) < x:
@@ -577,8 +578,8 @@ def interactive_select(
 
         print(f"\n--- {len(new_batch)} new candidate(s) from {level_label} "
               f"({len(accepted)} accepted, {len(accepted) + len(new_batch)}/{x}) ---")
-        for i, (word, reading) in enumerate(new_batch, 1):
-            print(f"  {i}. {word}  ({reading})")
+        for i, (word, reading, level) in enumerate(new_batch, 1):
+            print(f"  {i}. {word}  ({reading}) - {level}")
 
         print(f"\nEnter numbers to skip (space-separated), or Enter to accept all:")
         try:
@@ -588,8 +589,9 @@ def interactive_select(
             save_skipped(rejected, skipped_path)
             return accepted
 
+        new_batch_wr = [(w, r) for (w, r, _l) in new_batch] 
         if not response:
-            accepted.extend(new_batch)
+            accepted.extend(new_batch_wr)
         else:
             skip_indices = set()
             for part in response.split():
@@ -601,7 +603,7 @@ def interactive_select(
                     pass
 
             kept = 0
-            for i, (word, reading) in enumerate(new_batch):
+            for i, (word, reading) in enumerate(new_batch_wr):
                 if i in skip_indices:
                     rejected.add(word)
                     rejected.add(reading)
@@ -623,21 +625,21 @@ def interactive_select(
 
 
 def _verify_against_anki(
-    candidates: List[Tuple[str, str]],
+    candidates: list[Tuple[str, str]],
     deck: str,
     anki_url: str,
-    known_set: Set[str],
-    entries: List[Tuple[str, str, str]],
-    levels: List[str],
+    known_set: set[str],
+    entries: list[Tuple[str, str, str]],
+    levels: list[str],
     x: int,
-) -> List[Tuple[str, str]]:
+) -> list[Tuple[str, str]]:
     """Double-check candidates against Anki's full-text search.
 
     Catches words stored in non-standard note types or surface forms that
     the known-set builder missed. Replaces any that are found in Anki with
     fresh candidates.
     """
-    verified: List[Tuple[str, str]] = []
+    verified: list[Tuple[str, str]] = []
     replaced = 0
     for word, reading in candidates:
         try:
@@ -806,7 +808,7 @@ def main(argv=None) -> int:
 
         consecutive_failures = 0
         added = 0
-        successfully_queued: List[Tuple[str, str]] = []
+        successfully_queued: list[Tuple[str, str]] = []
         for i, (word, reading) in enumerate(candidates):
             print(f"Adding {word!r} ({reading})...  [{i+1}/{len(candidates)}]")
             if add_word_to_queue(page, word, screenshot_dir=DEFAULT_SCREENSHOT_DIR):
